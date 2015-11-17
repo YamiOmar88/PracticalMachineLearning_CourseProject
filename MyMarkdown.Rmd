@@ -1,0 +1,173 @@
+---
+title: "Practical Machine Learning - Course Project"
+author: Yamila M. Omar
+output: html_document
+---
+
+# Summary
+In this work, I analyze a Human Activity Recognition dataset provided by:
+
+[Velloso, E.; Bulling, A.; Gellersen, H.; Ugulino, W.; Fuks, H. Qualitative Activity Recognition of Weight Lifting Exercises. Proceedings of 4th International Conference in Cooperation with SIGCHI (Augmented Human '13) . Stuttgart, Germany: ACM SIGCHI, 2013.](http://groupware.les.inf.puc-rio.br/har)
+
+with the aim to determine *how well* a weight lifting exercise is being performed. To this aim, I use data from sensors located in the belt, arm, forearm and dumbbell used by the test subject. The data will be analyzed, summarized and used to train a *random forest* model which will allow me to classify new data points in one of five available categories.
+
+
+# Analysis
+
+For simplicity, all necessary libraries will be loaded now. If you wish to reproduce this work, make sure you have installed these libraries using the `install.packages` command.
+
+```{r, message = FALSE, warning = FALSE}
+library(caret)
+library(dplyr)
+library(ggplot2)
+library(reshape2) # used for its melt function for the confusion matrix plot
+```
+
+### Loading the data
+
+I will load the data and choose only a handful of columns. The reason for this is that many columns are full of NAs, empty or do not represent variables important to the problem of determining *how well* the activity is being performed (for example `raw_timestamp_part1`, `raw_timestamp_part2`, `new_window`, etc). I made this decision after looking at `head(mydf)`. I do not print this command here to save space.
+
+```{r, cache = TRUE}
+mydf <- read.csv("./data/pml-training.csv")
+
+mydf <- mydf %>% select(user_name, roll_belt, pitch_belt, yaw_belt, 
+                        total_accel_belt, gyros_belt_x, gyros_belt_y,
+                        gyros_belt_z,
+                        accel_belt_x, accel_belt_y, accel_belt_z,
+                        magnet_belt_x, magnet_belt_y, magnet_belt_z,
+                        roll_arm, pitch_arm, yaw_arm, 
+                        total_accel_arm, gyros_arm_x, gyros_arm_y, gyros_arm_z,
+                        accel_arm_x, accel_arm_y, accel_arm_z,
+                        magnet_arm_x, magnet_arm_y, magnet_arm_z,
+                        roll_dumbbell, pitch_dumbbell, yaw_dumbbell, 
+                        total_accel_dumbbell, gyros_dumbbell_x, gyros_dumbbell_y, 
+                        gyros_dumbbell_z,
+                        accel_dumbbell_x, accel_dumbbell_y, accel_dumbbell_z,
+                        magnet_dumbbell_x, magnet_dumbbell_y, magnet_dumbbell_z,
+                        roll_forearm, pitch_forearm, yaw_forearm, 
+                        total_accel_forearm, gyros_forearm_x, gyros_forearm_y, 
+                        gyros_forearm_z,
+                        accel_forearm_x, accel_forearm_y, accel_forearm_z,
+                        magnet_forearm_x, magnet_forearm_y, magnet_forearm_z,
+                        classe)
+```
+
+### Data Partition
+
+Next, I will separate the data into **training** and **testing** sets using the `createDataPartition` command from the `caret` package. I will train my model on the former and test its accuracy on the later.
+
+```{r, cache = TRUE}
+set.seed(123)
+aux <- createDataPartition(mydf$classe, p = 0.75, list = FALSE)
+dtrain <- mydf[aux, ]
+dtest <- mydf[-aux, ]
+```
+
+### Pre-processing and modeling
+
+The dimensions of our `dtrain` dataset are 14718 rows and 54 columns. As you can imagine, training a prediction algorithm with 52 numerical variables (`user_name` and the outcome, `classe`, are factor variables) would require a lot of computational time. For that reason, I will use **Principal Component Analysis** (PCA) to summarize the information contained in my `dtrain` data frame.
+
+```{r, cache = TRUE}
+# We find the pre-processing model using the preProcess function from caret
+ppm <- preProcess(dtrain[ , 2:53], method = "pca")
+trainPC <- predict(ppm, dtrain[ , 2:53])
+```
+
+I will now train a **random forest** using my new data frame `trainPC`. I will use **cross validation** within the `train` command from the `caret` package. From the `?trainControl` command, I learnt that `method` is the resampling method chosen, which in my case is cross-validation (coded as `"cv"`). The number of folds or resampling iterations is set by default as 10.
+
+```{r, cache = TRUE}
+mdl <- train(dtrain$classe ~ ., data = trainPC, method = "rf", 
+             trControl = trainControl(method = "cv"))
+
+mdl
+mdl$finalModel
+```
+
+### Testing the model and accuracy
+
+Now that I have my model, I will use it to predict the `classe` variable in the test data set. I will then use the `confusionMatrix` command from `caret` to determine the **out-of-sample error**.
+
+```{r, cache = TRUE}
+testPC <- predict(ppm, dtest[ , 2:53])
+prediction <- predict(mdl, newdata = testPC)
+confusionMatrix(prediction, dtest$classe)
+```
+
+
+As it can be seen in the confusion matrix above (and in the Figure below), the model has an out-of-sample overall accuracy of 97.94%. In other words, the **out-of-sample error** is 2.06%. It is also remarkable that the sensitivity, i.e. the probability of positively identify the `classe` given that a data point belongs to it, is above 95% for all classes. The specificity, i.e. the probability that the method determines that a point does not belong to a `classe` when it does not, is above 98% in all cases.
+
+
+```{r}
+confmatrix <- as.matrix(confusionMatrix(prediction, dtest$classe))
+confmatrix <- apply(confmatrix, 2, function(x) round(x/sum(x), 3))
+p <- ggplot(melt(confmatrix), aes(x=Var1, y=Var2, fill=value)) + 
+        geom_tile()
+p + xlab("Prediction") + ylab("Reference") + ggtitle("Confusion Matrix")
+```
+
+# Apendix
+
+### Exploratory Data Analysis
+
+```{r}
+str(mydf)
+summary(mydf)
+```
+
+### Solution to the second part of the assignment
+
+I share the code for this part of the asignment. However, I will not make the answers visible.
+
+```{r, eval = FALSE}
+# Read the data
+mytest <- read.csv("./data/pml-testing.csv")
+
+# Select the appropriate variables
+mytest2 <- mytest %>% select(user_name, roll_belt, pitch_belt, yaw_belt, 
+                        total_accel_belt, gyros_belt_x, gyros_belt_y, 
+                        gyros_belt_z,
+                        accel_belt_x, accel_belt_y, accel_belt_z,
+                        magnet_belt_x, magnet_belt_y, magnet_belt_z,
+                        roll_arm, pitch_arm, yaw_arm, 
+                        total_accel_arm, gyros_arm_x, gyros_arm_y, gyros_arm_z,
+                        accel_arm_x, accel_arm_y, accel_arm_z,
+                        magnet_arm_x, magnet_arm_y, magnet_arm_z,
+                        roll_dumbbell, pitch_dumbbell, yaw_dumbbell, 
+                        total_accel_dumbbell, gyros_dumbbell_x, gyros_dumbbell_y, 
+                        gyros_dumbbell_z,
+                        accel_dumbbell_x, accel_dumbbell_y, accel_dumbbell_z,
+                        magnet_dumbbell_x, magnet_dumbbell_y, magnet_dumbbell_z,
+                        roll_forearm, pitch_forearm, yaw_forearm, 
+                        total_accel_forearm, gyros_forearm_x, gyros_forearm_y, 
+                        gyros_forearm_z,
+                        accel_forearm_x, accel_forearm_y, accel_forearm_z,
+                        magnet_forearm_x, magnet_forearm_y, magnet_forearm_z)
+
+# Predict the values of the principal components
+mytest2PC <- predict(ppm, newdata = mytest2[ , 2:53])
+
+# Save the solution
+answer <- data.frame(problem_id = mytest$problem_id)
+answer$prediction <- predict(mdl, newdata = mytest2PC)
+
+# Show the solution
+answer
+```
+
+And this is the code I used to save the answers in text files. It is a slight variation as that proposed by the instructor of the course.
+
+```{r, eval = FALSE}
+# We force the prediction to character format
+answer$prediction <- as.character(answer$prediction)
+
+# We save the answers
+n = length(answer$problem_id)
+
+for(i in 1:n){
+    filename = paste0("./answer/problem_id_",i,".txt")
+    write.table(answer$prediction[i], file = filename, quote = FALSE, 
+                row.names = FALSE, col.names = FALSE)
+}
+```
+
+I have submitted it for evaluation. I received 18 out of 20 points. Predictions for `problem_id_6` and `problem_id_11` were incorrect. From this, the accuracy could be estimated to be 90%.
